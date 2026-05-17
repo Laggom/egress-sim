@@ -28,6 +28,8 @@ const defaultCfg: SimConfig = {
   policy: "front-back",
   meanSpeed: 1.0,
   selectedSeat: null,
+  colSections: 2,
+  rowSections: 1,
 };
 
 function makeInitial(cfg: SimConfig) {
@@ -48,6 +50,14 @@ export const useSim = create<SimState>((set, get) => ({
 
   setCfg: (patch) => {
     const cfg = { ...get().cfg, ...patch };
+    // clamp sections to <= rows/cols
+    cfg.colSections = Math.max(1, Math.min(cfg.colSections, cfg.cols));
+    cfg.rowSections = Math.max(1, Math.min(cfg.rowSections, cfg.rows));
+    cfg.exitCount = Math.max(1, Math.min(cfg.exitCount, 6));
+    // 좌석 변경 시 선택 좌석 invalidate
+    if ((patch.rows !== undefined || patch.cols !== undefined) && cfg.selectedSeat !== null) {
+      if (cfg.selectedSeat >= cfg.rows * cfg.cols) cfg.selectedSeat = null;
+    }
     // 좌석/출구 변경 → 시뮬 재구성
     const needRebuild =
       patch.rows !== undefined ||
@@ -55,7 +65,9 @@ export const useSim = create<SimState>((set, get) => ({
       patch.exitCount !== undefined ||
       patch.exitSide !== undefined ||
       patch.policy !== undefined ||
-      patch.meanSpeed !== undefined;
+      patch.meanSpeed !== undefined ||
+      patch.colSections !== undefined ||
+      patch.rowSections !== undefined;
     if (needRebuild) {
       const init = makeInitial(cfg);
       set({ cfg, ...init, t: 0, running: false, finishedAt: null, tick: get().tick + 1 });

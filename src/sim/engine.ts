@@ -7,53 +7,108 @@ export interface Grid {
   isExit: Uint8Array;
   exits: { x: number; y: number }[];
   seatCells: { x: number; y: number }[][];
-  hasCenterAisle: boolean;
+  colAisleXs: number[]; // 세로 통로의 x 좌표들 (양 끝 + 섹션 사이)
+  rowAisleYs: number[]; // 가로 통로의 y 좌표들 (양 끝 + 섹션 사이)
+}
+
+// cols을 colSections 개로 거의 균등 분할
+function splitCounts(total: number, sections: number): number[] {
+  const s = Math.max(1, Math.min(sections, total));
+  const base = Math.floor(total / s);
+  const rem = total - base * s;
+  const out: number[] = [];
+  for (let i = 0; i < s; i++) out.push(base + (i < rem ? 1 : 0));
+  return out;
 }
 
 export function buildGrid(cfg: SimConfig): Grid {
   const { rows, cols, exitCount, exitSide } = cfg;
-  const hasCenterAisle = cols >= 6;
-  const W = cols + (hasCenterAisle ? 3 : 2);
-  const H = rows + 2;
+  const colSections = Math.max(1, Math.min(cfg.colSections, cols));
+  const rowSections = Math.max(1, Math.min(cfg.rowSections, rows));
+
+  const colChunks = splitCounts(cols, colSections); // 좌석 열 분포
+  const rowChunks = splitCounts(rows, rowSections);
+
+  // 가로 폭: 좌측통로 + (각 섹션 좌석 + 다음 섹션 사이 통로) + 우측통로
+  // 통로 수 = colSections + 1 (양 끝 + 섹션 사이)
+  const numColAisles = colSections + 1;
+  const numRowAisles = rowSections + 1;
+  const W = cols + numColAisles;
+  const H = rows + numRowAisles;
+
   const isAisle = new Uint8Array(W * H);
   const isExit = new Uint8Array(W * H);
 
-  const centerAisleX = hasCenterAisle ? 1 + Math.floor(cols / 2) : -1;
-  const leftAisleX = 0;
-  const rightAisleX = W - 1;
-  const frontAisleY = 0;
-  const backAisleY = H - 1;
+  // 세로 통로 x 좌표
+  const colAisleXs: number[] = [];
+  {
+    let x = 0;
+    colAisleXs.push(x); // 좌측 통로
+    for (let i = 0; i < colSections; i++) {
+      x += 1 + colChunks[i]; // 통로 1칸 + 좌석 chunk
+      colAisleXs.push(x);
+    }
+  }
+  // 가로 통로 y 좌표
+  const rowAisleYs: number[] = [];
+  {
+    let y = 0;
+    rowAisleYs.push(y);
+    for (let i = 0; i < rowSections; i++) {
+      y += 1 + rowChunks[i];
+      rowAisleYs.push(y);
+    }
+  }
 
+  const colAisleSet = new Set(colAisleXs);
+  const rowAisleSet = new Set(rowAisleYs);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      if (
-        x === leftAisleX ||
-        x === rightAisleX ||
-        x === centerAisleX ||
-        y === frontAisleY ||
-        y === backAisleY
-      ) {
+      if (colAisleSet.has(x) || rowAisleSet.has(y)) {
         isAisle[y * W + x] = 1;
       }
     }
   }
 
+  // 좌석 cell 매핑: (r, c) -> {x, y}
+  // c가 속한 colSection 인덱스 찾기, r도 마찬가지
   const seatCells: { x: number; y: number }[][] = [];
+  // 각 column 인덱스에 대한 cell x 사전 계산
+  const colToX: number[] = new Array(cols);
+  {
+    let cur = 0; // 좌석 column counter
+    let x = 1;   // 첫 좌측통로 다음
+    for (let s = 0; s < colSections; s++) {
+      for (let k = 0; k < colChunks[s]; k++) {
+        colToX[cur++] = x++;
+      }
+      x++; // 섹션 사이 통로 건너뛰기
+    }
+  }
+  const rowToY: number[] = new Array(rows);
+  {
+    let cur = 0;
+    let y = 1;
+    for (let s = 0; s < rowSections; s++) {
+      for (let k = 0; k < rowChunks[s]; k++) {
+        rowToY[cur++] = y++;
+      }
+      y++;
+    }
+  }
   for (let r = 0; r < rows; r++) {
     const row: { x: number; y: number }[] = [];
     for (let c = 0; c < cols; c++) {
-      let x = 1 + c;
-      if (hasCenterAisle && c >= Math.floor(cols / 2)) x += 1;
-      const y = 1 + r;
-      row.push({ x, y });
+      row.push({ x: colToX[c], y: rowToY[r] });
     }
     seatCells.push(row);
   }
 
   const exits: { x: number; y: number }[] = [];
   const placeExits = (axis: "x" | "y", fixed: number, length: number) => {
-    for (let i = 1; i <= exitCount; i++) {
-      const pos = Math.max(1, Math.min(length - 1, Math.round((i * length) / (exitCount + 1))));
+    const n = Math.max(1, Math.min(exitCount, length - 1));
+    for (let i = 1; i <= n; i++) {
+      const pos = Math.max(1, Math.min(length - 1, Math.round((i * length) / (n + 1))));
       if (axis === "x") exits.push({ x: pos, y: fixed });
       else exits.push({ x: fixed, y: pos });
     }
@@ -67,7 +122,7 @@ export function buildGrid(cfg: SimConfig): Grid {
     isAisle[e.y * W + e.x] = 1;
   }
 
-  return { W, H, isAisle, isExit, exits, seatCells, hasCenterAisle };
+  return { W, H, isAisle, isExit, exits, seatCells, colAisleXs, rowAisleYs };
 }
 
 export function bfsPath(grid: Grid, sx: number, sy: number): { x: number; y: number }[] | null {

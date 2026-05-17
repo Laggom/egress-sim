@@ -41,24 +41,38 @@ export function Controls() {
 
       <Slider
         label={`좌석 행: ${cfg.rows}`}
-        min={3}
-        max={14}
+        min={2}
+        max={40}
         value={cfg.rows}
         onChange={(v) => setCfg({ rows: v })}
       />
       <Slider
         label={`좌석 열: ${cfg.cols}`}
-        min={3}
-        max={14}
+        min={2}
+        max={40}
         value={cfg.cols}
         onChange={(v) => setCfg({ cols: v })}
       />
       <Slider
+        label={`세로 통로 섹션: ${cfg.colSections} (열 ÷ ${cfg.colSections}덩어리)`}
+        min={1}
+        max={Math.min(6, cfg.cols)}
+        value={cfg.colSections}
+        onChange={(v) => setCfg({ colSections: v })}
+      />
+      <Slider
+        label={`가로 통로 섹션: ${cfg.rowSections} (행 ÷ ${cfg.rowSections}덩어리)`}
+        min={1}
+        max={Math.min(6, cfg.rows)}
+        value={cfg.rowSections}
+        onChange={(v) => setCfg({ rowSections: v })}
+      />
+      <Slider
         label={`출구 수: ${cfg.exitCount}`}
         min={1}
-        max={3}
+        max={6}
         value={cfg.exitCount}
-        onChange={(v) => setCfg({ exitCount: v as 1 | 2 | 3 })}
+        onChange={(v) => setCfg({ exitCount: v })}
       />
 
       <div>

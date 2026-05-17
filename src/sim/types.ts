@@ -4,11 +4,14 @@ export type ExitSide = "front" | "back" | "side";
 export interface SimConfig {
   rows: number;
   cols: number;
-  exitCount: 1 | 2 | 3;
+  exitCount: number;
   exitSide: ExitSide;
   policy: Policy;
   meanSpeed: number;
   selectedSeat: number | null;
+  // 좌석 덩어리(섹션) 수
+  colSections: number;  // 세로 통로로 나뉘는 블록 수 (1~6)
+  rowSections: number;  // 가로 통로로 나뉘는 블록 수 (1~6)
 }
 
 export interface Person {
