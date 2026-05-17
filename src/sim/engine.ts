@@ -198,10 +198,21 @@ export function createPeople(cfg: SimConfig, grid: Grid): Person[] {
   const cue = computeCueTimes(cfg);
   const people: Person[] = [];
   let id = 0;
+  const fastRate = (cfg.fastRate ?? 0.15);
+  const slowRate = (cfg.slowRate ?? 0.15);
+  const smellyRate = (cfg.smellyRate ?? 0.05);
   for (let r = 0; r < cfg.rows; r++) {
     for (let c = 0; c < cfg.cols; c++) {
-      const speed = Math.max(0.2, cfg.meanSpeed + randn() * cfg.meanSpeed * 0.25);
-      const standUpDelay = Math.max(0.5, 2.5 + randn() * 1.2);
+      // trait 추첨
+      const u = Math.random();
+      let trait: "normal" | "fast" | "slow" | "smelly" = "normal";
+      if (u < smellyRate) trait = "smelly";
+      else if (u < smellyRate + fastRate) trait = "fast";
+      else if (u < smellyRate + fastRate + slowRate) trait = "slow";
+      const speedMul = trait === "fast" ? 1.45 : trait === "slow" ? 0.6 : 1.0;
+      const standUpMul = trait === "slow" ? 1.6 : trait === "fast" ? 0.7 : 1.0;
+      const speed = Math.max(0.2, (cfg.meanSpeed + randn() * cfg.meanSpeed * 0.25) * speedMul);
+      const standUpDelay = Math.max(0.5, (2.5 + randn() * 1.2) * standUpMul);
       const seat = grid.seatCells[r][c];
       people.push({
         id: id++,
@@ -216,8 +227,41 @@ export function createPeople(cfg: SimConfig, grid: Grid): Person[] {
         cueTime: cue[r][c],
         standUpStart: -1,
         state: "seated",
+        trait,
+        dropUntil: -1,
+        dropCount: 0,
+        chatterWith: null,
       });
     }
+  }
+  // chatter 짝 매칭: 같은 row의 인접한 두 사람을 짝지음. 비율 만큼.
+  const chatterPairRate = Math.max(0, Math.min(0.5, cfg.chatterPairRate ?? 0));
+  const targetPairs = Math.floor((people.length * chatterPairRate) / 2);
+  let made = 0;
+  // row 단위로 셔플된 좌석 쌍 후보
+  const candidatePairs: [number, number][] = [];
+  for (let r = 0; r < cfg.rows; r++) {
+    for (let c = 0; c < cfg.cols - 1; c++) {
+      const aId = r * cfg.cols + c;
+      const bId = r * cfg.cols + c + 1;
+      candidatePairs.push([aId, bId]);
+    }
+  }
+  // shuffle
+  for (let i = candidatePairs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidatePairs[i], candidatePairs[j]] = [candidatePairs[j], candidatePairs[i]];
+  }
+  for (const [a, b] of candidatePairs) {
+    if (made >= targetPairs) break;
+    if (people[a].chatterWith !== null || people[b].chatterWith !== null) continue;
+    people[a].chatterWith = b;
+    people[b].chatterWith = a;
+    // 같은 cue 시간으로 동기화 (둘 중 늦은 쪽)
+    const c0 = Math.max(people[a].cueTime, people[b].cueTime);
+    people[a].cueTime = c0;
+    people[b].cueTime = c0;
+    made++;
   }
   return people;
 }
@@ -228,8 +272,10 @@ export function stepSim(
   grid: Grid,
   t: number,
   dt: number,
-  heat: Float32Array
+  heat: Float32Array,
+  cfg: SimConfig
 ): { allExited: boolean } {
+  const dropPerSec = cfg.dropRatePerSec ?? 0;
   const { W } = grid;
   const occupied = new Map<number, number>();
   for (const p of people) {
@@ -264,6 +310,43 @@ export function stepSim(
       continue;
     }
     if (p.state === "walking" && p.path && p.pathIdx !== undefined) {
+      // 물건 떨어뜨림 진행 중이면 정지
+      if (p.dropUntil > t) {
+        const cx = Math.round(p.x);
+        const cy = Math.round(p.y);
+        heat[cy * W + cx] += dt * 0.5;
+        continue;
+      }
+      // 새 drop 이벤트 추첨 (사람당, dt 비례)
+      if (dropPerSec > 0 && Math.random() < dropPerSec * dt) {
+        p.dropUntil = t + Math.max(1.0, 2.5 + randn() * 1.0);
+        p.dropCount++;
+        continue;
+      }
+      // chatter 동행: 짝이 아직 따라오지 않으면 대기
+      if (p.chatterWith !== null) {
+        const buddy = people[p.chatterWith];
+        if (buddy && buddy.state !== "exited") {
+          if (buddy.state === "seated" || buddy.state === "standing") {
+            // 짝이 아직 좌석 — 대기 (작은 heat)
+            const cx = Math.round(p.x);
+            const cy = Math.round(p.y);
+            heat[cy * W + cx] += dt * 0.3;
+            continue;
+          }
+          // 거리 체크 (둘 다 walking)
+          const gap = Math.hypot(buddy.x - p.x, buddy.y - p.y);
+          if (gap > 2.2) {
+            // 너무 멀면 더 빠른 쪽이 잠시 멈춤 (그 쪽이 본인일 경우만)
+            if (p.speed >= buddy.speed) {
+              const cx = Math.round(p.x);
+              const cy = Math.round(p.y);
+              heat[cy * W + cx] += dt * 0.2;
+              continue;
+            }
+          }
+        }
+      }
       const wpIdx = p.pathIdx + 1;
       if (wpIdx >= p.path.length) {
         p.state = "exited";
@@ -276,7 +359,13 @@ export function stepSim(
       const dx = target.x - p.x;
       const dy = target.y - p.y;
       const dist = Math.hypot(dx, dy);
-      const cellPerSec = p.speed / 0.5; // 0.5m per cell
+      // chatter면 짝과 속도 동기화 (더 느린 쪽으로)
+      let effSpeed = p.speed;
+      if (p.chatterWith !== null) {
+        const buddy = people[p.chatterWith];
+        if (buddy && buddy.state === "walking") effSpeed = Math.min(effSpeed, buddy.speed);
+      }
+      const cellPerSec = effSpeed / 0.5;
       const moveDist = cellPerSec * dt;
 
       const targetIdx = target.y * W + target.x;
@@ -286,6 +375,32 @@ export function stepSim(
         const cy = Math.round(p.y);
         heat[cy * W + cx] += dt;
         continue;
+      }
+      // smelly 회피: target cell의 4-이웃에 smelly가 있으면 대기 (본인이 smelly면 무시)
+      if (p.trait !== "smelly") {
+        let blockedBySmell = false;
+        const nbrs: [number, number][] = [
+          [target.x + 1, target.y], [target.x - 1, target.y],
+          [target.x, target.y + 1], [target.x, target.y - 1],
+        ];
+        for (const [nx, ny] of nbrs) {
+          if (nx < 0 || ny < 0 || nx >= grid.W || ny >= grid.H) continue;
+          const ni = ny * grid.W + nx;
+          const oid = occupied.get(ni);
+          if (oid !== undefined && oid !== p.id) {
+            const other = people[oid];
+            if (other && other.trait === "smelly" && other.state !== "exited") {
+              blockedBySmell = true;
+              break;
+            }
+          }
+        }
+        if (blockedBySmell) {
+          const cx = Math.round(p.x);
+          const cy = Math.round(p.y);
+          heat[cy * W + cx] += dt * 0.6;
+          continue;
+        }
       }
 
       if (moveDist >= dist) {

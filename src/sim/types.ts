@@ -10,9 +10,21 @@ export interface SimConfig {
   meanSpeed: number;
   selectedSeat: number | null;
   // 좌석 덩어리(섹션) 수
-  colSections: number;  // 세로 통로로 나뉘는 블록 수 (1~6)
-  rowSections: number;  // 가로 통로로 나뉘는 블록 수 (1~6)
+  colSections: number;
+  rowSections: number;
+  // 인구 traits 비율 (0~1)
+  fastRate: number;
+  slowRate: number;
+  smellyRate: number;
+  // 물건 떨어뜨릴 확률/초당 (사람당)
+  dropRatePerSec: number;
+  // 대화하는 쌍의 비율 (전체 인원 대비, 0~0.5)
+  chatterPairRate: number;
+  // 시뮬 배속 (1, 2, 4, 8)
+  timeScale: number;
 }
+
+export type Trait = "normal" | "fast" | "slow" | "smelly";
 
 export interface Person {
   id: number;
@@ -30,4 +42,9 @@ export interface Person {
   exitTime?: number;
   path?: { x: number; y: number }[];
   pathIdx?: number;
+  trait: Trait;
+  dropUntil: number;
+  dropCount: number;
+  // 대화 짝 (서로 ID 참조). null이면 솔로
+  chatterWith: number | null;
 }

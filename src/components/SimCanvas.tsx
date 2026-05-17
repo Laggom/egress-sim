@@ -116,6 +116,27 @@ export function SimCanvas() {
         }
       }
 
+      // chatter pair 연결선 (먼저 그리고 위에 사람 점)
+      const drawnPairs = new Set<number>();
+      for (const p of people) {
+        if (p.state === "exited" || p.chatterWith === null) continue;
+        const key = Math.min(p.id, p.chatterWith) * 100000 + Math.max(p.id, p.chatterWith);
+        if (drawnPairs.has(key)) continue;
+        drawnPairs.add(key);
+        const buddy = people[p.chatterWith];
+        if (!buddy || buddy.state === "exited") continue;
+        const a = cellToPx(p.x, p.y);
+        const b = cellToPx(buddy.x, buddy.y);
+        ctx.strokeStyle = "rgba(236,72,153,0.6)";
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(a.px, a.py);
+        ctx.lineTo(b.px, b.py);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       // 사람 (점)
       for (const p of people) {
         if (p.state === "exited") continue;
@@ -123,19 +144,54 @@ export function SimCanvas() {
         const sr = Math.floor((cfg.selectedSeat ?? -1) / cfg.cols);
         const sc2 = (cfg.selectedSeat ?? -1) % cfg.cols;
         const isSelected = p.seatRow === sr && p.seatCol === sc2;
+        // trait 별 색
         let color = "#60a5fa";
         if (p.state === "seated") color = "#64748b";
         else if (p.state === "standing") color = "#a78bfa";
         else if (p.state === "walking") color = "#38bdf8";
+        // trait override
+        if (p.trait === "fast" && p.state !== "seated") color = "#22c55e";
+        else if (p.trait === "slow" && p.state !== "seated") color = "#fb923c";
+        else if (p.trait === "smelly") color = "#84cc16";
         if (isSelected) color = "#facc15";
+        const r = Math.max(2, cell * 0.28);
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(px, py, Math.max(2, cell * 0.28), 0, Math.PI * 2);
+        ctx.arc(px, py, r, 0, Math.PI * 2);
         ctx.fill();
+
+        // smelly halo
+        if (p.trait === "smelly" && p.state !== "seated") {
+          ctx.strokeStyle = "rgba(132,204,22,0.35)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(px, py, r + cell * 0.45, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // dropped 표시 (📦)
+        if (p.dropUntil > 0 && p.state === "walking") {
+          // 떨어뜨리는 중
+          const isDropping = (p as any).__dropOver === undefined ? false : false;
+          void isDropping;
+          // 현재 시점 기준은 store t를 알아야 하니, 단순히 dropCount>0 + state walking 표시 (아이콘은 dropUntil와 비교 어려움)
+        }
         if (isSelected) {
           ctx.strokeStyle = "#fff";
           ctx.lineWidth = 1.5;
           ctx.stroke();
+        }
+      }
+
+      // drop indicator: dropUntil > 0이면 박스 아이콘. 현재 t를 store에서 가져옴
+      const tNow = useSim.getState().t;
+      ctx.font = `${Math.max(8, cell * 0.55)}px ui-sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (const p of people) {
+        if (p.state !== "walking") continue;
+        if (p.dropUntil > tNow) {
+          const { px, py } = cellToPx(p.x, p.y);
+          ctx.fillText("📦", px, py - cell * 0.7);
         }
       }
     };

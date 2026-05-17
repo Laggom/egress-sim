@@ -7,6 +7,7 @@ import { useSim } from "./sim/store";
 export default function App() {
   const running = useSim((s) => s.running);
   const step = useSim((s) => s.step);
+  const timeScale = useSim((s) => s.cfg.timeScale);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number>(0);
 
@@ -18,17 +19,23 @@ export default function App() {
     }
     lastRef.current = performance.now();
     const loop = (now: number) => {
-      const dt = Math.min(0.1, (now - lastRef.current) / 1000);
+      const realDt = Math.min(0.1, (now - lastRef.current) / 1000);
       lastRef.current = now;
-      // 시뮬 속도: 실시간의 2배 (체감)
-      step(dt * 2);
+      // 배속 적용: 큰 배속에서는 sub-step으로 잘게 나눠 정확도 유지
+      let remaining = realDt * timeScale;
+      const sub = 0.05;
+      while (remaining > 0) {
+        const d = Math.min(sub, remaining);
+        step(d);
+        remaining -= d;
+      }
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [running, step]);
+  }, [running, step, timeScale]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -66,6 +73,10 @@ function Legend() {
     { c: "#64748b", l: "착석" },
     { c: "#a78bfa", l: "기립 중" },
     { c: "#38bdf8", l: "보행" },
+    { c: "#22c55e", l: "⚡빠름" },
+    { c: "#fb923c", l: "🐢느림" },
+    { c: "#84cc16", l: "🦨냄새(반경 회피)" },
+    { c: "#ec4899", l: "💬대화짝(점선)" },
     { c: "#22c55e", l: "출구" },
     { c: "rgba(239,68,68,0.7)", l: "정체 heat" },
   ];
