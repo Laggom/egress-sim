@@ -2,6 +2,22 @@ import { create } from "zustand";
 import type { SimConfig, Person, Policy } from "./types";
 import { buildGrid, createPeople, stepSim, type Grid } from "./engine";
 
+export type TraitScenario =
+  | "current"
+  | "no-fast"
+  | "no-slow"
+  | "no-smelly"
+  | "no-chatter"
+  | "no-drop"
+  | "all-off"
+  | "all-on";
+
+export interface TraitBenchResult {
+  scenario: TraitScenario;
+  label: string;
+  runs: number[];
+}
+
 interface SimState {
   cfg: SimConfig;
   grid: Grid;
@@ -12,9 +28,10 @@ interface SimState {
   finishedAt: number | null;
   history: Record<Policy, number[]>;
   tick: number;
-  // 벤치마크 상태
   benchmarking: boolean;
-  benchProgress: { policy: Policy; run: number; total: number } | null;
+  benchProgress: { label: string; run: number; total: number } | null;
+  // 특성 ON/OFF 결과
+  traitBench: TraitBenchResult[];
 
   setCfg: (patch: Partial<SimConfig>) => void;
   reset: () => void;
@@ -23,7 +40,9 @@ interface SimState {
   selectSeat: (idx: number | null) => void;
   setTimeScale: (s: number) => void;
   runBenchmark: (runsPerPolicy: number) => Promise<void>;
+  runTraitBenchmark: (runsPerScenario: number) => Promise<void>;
   clearHistory: () => void;
+  clearTraitBench: () => void;
 }
 
 const defaultCfg: SimConfig = {
@@ -79,6 +98,7 @@ export const useSim = create<SimState>((set, get) => ({
   tick: 0,
   benchmarking: false,
   benchProgress: null,
+  traitBench: [],
 
   setCfg: (patch) => {
     const cfg = { ...get().cfg, ...patch };
@@ -158,8 +178,7 @@ export const useSim = create<SimState>((set, get) => ({
     };
     for (const policy of ALL_POLICIES) {
       for (let i = 0; i < runsPerPolicy; i++) {
-        set({ benchProgress: { policy, run: i + 1, total: runsPerPolicy }, tick: get().tick + 1 });
-        // UI 업데이트 양보
+        set({ benchProgress: { label: policy, run: i + 1, total: runsPerPolicy }, tick: get().tick + 1 });
         await new Promise((r) => setTimeout(r, 0));
         const result = simulateOnce({ ...baseCfg, policy });
         fresh[policy].push(result);
@@ -168,4 +187,42 @@ export const useSim = create<SimState>((set, get) => ({
     }
     set({ benchmarking: false, benchProgress: null, tick: get().tick + 1 });
   },
+
+  runTraitBenchmark: async (runsPerScenario) => {
+    const baseCfg = get().cfg;
+    set({ benchmarking: true, running: false, tick: get().tick + 1 });
+
+    const scenarios: { key: TraitScenario; label: string; patch: Partial<SimConfig> }[] = [
+      { key: "current", label: "현재 설정", patch: {} },
+      { key: "no-fast", label: "⚡빠른 사람 제거", patch: { fastRate: 0 } },
+      { key: "no-slow", label: "🐢느린 사람 제거", patch: { slowRate: 0 } },
+      { key: "no-smelly", label: "🦨냄새 제거", patch: { smellyRate: 0 } },
+      { key: "no-chatter", label: "💬대화짝 제거", patch: { chatterPairRate: 0 } },
+      { key: "no-drop", label: "📦떨어뜨림 제거", patch: { dropRatePerSec: 0 } },
+      {
+        key: "all-off", label: "모든 특성 OFF",
+        patch: { fastRate: 0, slowRate: 0, smellyRate: 0, chatterPairRate: 0, dropRatePerSec: 0 },
+      },
+      {
+        key: "all-on", label: "모든 특성 MAX",
+        patch: { fastRate: 0.3, slowRate: 0.3, smellyRate: 0.2, chatterPairRate: 0.4, dropRatePerSec: 0.01 },
+      },
+    ];
+
+    const fresh: TraitBenchResult[] = scenarios.map((s) => ({ scenario: s.key, label: s.label, runs: [] }));
+    for (let si = 0; si < scenarios.length; si++) {
+      const s = scenarios[si];
+      const merged: SimConfig = { ...baseCfg, ...s.patch };
+      for (let i = 0; i < runsPerScenario; i++) {
+        set({ benchProgress: { label: s.label, run: i + 1, total: runsPerScenario }, tick: get().tick + 1 });
+        await new Promise((r) => setTimeout(r, 0));
+        const result = simulateOnce(merged);
+        fresh[si].runs.push(result);
+        set({ traitBench: fresh.map((r) => ({ ...r, runs: [...r.runs] })), tick: get().tick + 1 });
+      }
+    }
+    set({ benchmarking: false, benchProgress: null, tick: get().tick + 1 });
+  },
+
+  clearTraitBench: () => set({ traitBench: [], tick: get().tick + 1 }),
 }));

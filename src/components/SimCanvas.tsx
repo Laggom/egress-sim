@@ -119,7 +119,7 @@ export function SimCanvas() {
       // chatter pair 연결선 (먼저 그리고 위에 사람 점)
       const drawnPairs = new Set<number>();
       for (const p of people) {
-        if (p.state === "exited" || p.chatterWith === null) continue;
+        if (p.state === "exited" || p.chatterWith === null || p.chatterBroken) continue;
         const key = Math.min(p.id, p.chatterWith) * 100000 + Math.max(p.id, p.chatterWith);
         if (drawnPairs.has(key)) continue;
         drawnPairs.add(key);

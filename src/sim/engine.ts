@@ -330,30 +330,36 @@ export function stepSim(
         p.dropCount++;
         continue;
       }
-      // chatter 동행: follower만 leader를 기다림. leader는 절대 안 기다림.
-      // timeout(5s 동안 정체)면 동행 포기.
+      // chatter 동행: 두 사람 모두 서로를 기다림. 짝끼리는 cell 충돌 면제로 deadlock 방지.
+      // 일정 거리(3 cell) 이상 멀어지면 자동으로 동행 해제 (점선도 사라짐).
       if (p.chatterWith !== null && !p.chatterBroken) {
         const buddy = people[p.chatterWith];
         if (buddy && buddy.state !== "exited" && !buddy.chatterBroken) {
-          if (!p.chatterLeader) {
-            // follower
-            if (buddy.state === "seated" || buddy.state === "standing") {
-              // leader가 아직 출발 안 함 → 대기
-              if (t - p.lastProgressT > 5) {
-                p.chatterBroken = true;
-                buddy.chatterBroken = true;
-              } else {
-                const cx = Math.round(p.x);
-                const cy = Math.round(p.y);
-                heat[cy * W + cx] += dt * 0.2;
-                continue;
-              }
-            } else if (buddy.state === "walking") {
-              // leader가 너무 멀리 가면 따라잡기 위해 leader를 잠시 멈추는 대신
-              // follower는 그냥 계속 따라감 (leader가 기다리지 않으므로 deadlock 없음)
+          const gap = Math.hypot(buddy.x - p.x, buddy.y - p.y);
+          if (gap > 3.0) {
+            // 너무 멀어졌으면 동행 종료 (시각적 점선도 끊김)
+            p.chatterBroken = true;
+            buddy.chatterBroken = true;
+          } else if (buddy.state === "seated" || buddy.state === "standing") {
+            // 짝이 아직 안 일어났으면 대기
+            if (t - p.lastProgressT > 5) {
+              p.chatterBroken = true;
+              buddy.chatterBroken = true;
+            } else {
+              const cx = Math.round(p.x);
+              const cy = Math.round(p.y);
+              heat[cy * W + cx] += dt * 0.2;
+              continue;
+            }
+          } else if (buddy.state === "walking" && gap > 1.8) {
+            // 짝이 walking이지만 좀 떨어졌으면 — 내가 더 빠른 쪽이면 잠깐 멈춤
+            if (p.speed >= buddy.speed) {
+              const cx = Math.round(p.x);
+              const cy = Math.round(p.y);
+              heat[cy * W + cx] += dt * 0.15;
+              continue;
             }
           }
-          // leader는 buddy를 신경쓰지 않음 — buddy가 알아서 따라옴
         }
       }
       const wpIdx = p.pathIdx + 1;

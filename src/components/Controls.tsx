@@ -21,9 +21,11 @@ const SPEED_OPTIONS = [1, 2, 4, 8, 16];
 export function Controls() {
   const {
     cfg, setCfg, running, toggleRun, reset, t, finishedAt,
-    setTimeScale, runBenchmark, benchmarking, benchProgress, clearHistory,
+    setTimeScale, runBenchmark, runTraitBenchmark, benchmarking, benchProgress,
+    clearHistory, clearTraitBench,
   } = useSim();
   const [benchRuns, setBenchRuns] = useState(5);
+  const [traitRuns, setTraitRuns] = useState(3);
 
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -75,33 +77,66 @@ export function Controls() {
       {/* Benchmark */}
       <div className="bg-fuchsia-500/10 border border-fuchsia-500/30 rounded p-2">
         <div className="text-fuchsia-300 text-xs mb-2 font-medium">🧪 Benchmark</div>
-        <div className="flex items-center gap-2 mb-2">
-          <label className="text-xs text-slate-300">정책당 횟수</label>
-          <input
-            type="number" min={1} max={20} value={benchRuns}
-            onChange={(e) => setBenchRuns(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
-            className="w-14 bg-slate-800 rounded px-1 py-0.5 text-xs"
+
+        {/* 진행 표시 (둘 다 공유) */}
+        {benchmarking && benchProgress && (
+          <div className="mb-2 text-[11px] text-fuchsia-200 bg-fuchsia-500/10 rounded px-2 py-1">
+            ▶ {benchProgress.label} · {benchProgress.run}/{benchProgress.total}
+          </div>
+        )}
+
+        {/* 정책 benchmark */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2 mb-1">
+            <label className="text-xs text-slate-300 flex-1">정책 비교</label>
+            <input
+              type="number" min={1} max={20} value={benchRuns}
+              onChange={(e) => setBenchRuns(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+              className="w-12 bg-slate-800 rounded px-1 py-0.5 text-xs text-right"
+              disabled={benchmarking}
+            />
+            <span className="text-[10px] text-slate-500">회</span>
+          </div>
+          <button
             disabled={benchmarking}
-          />
+            onClick={() => runBenchmark(benchRuns)}
+            className="w-full px-2 py-1.5 rounded text-xs font-medium bg-fuchsia-500 text-black disabled:opacity-50"
+          >
+            ▶ 5개 정책 × {benchRuns}회
+          </button>
         </div>
-        <button
-          disabled={benchmarking}
-          onClick={() => runBenchmark(benchRuns)}
-          className="w-full px-2 py-1.5 rounded text-xs font-medium bg-fuchsia-500 text-black disabled:opacity-50"
-        >
-          {benchmarking
-            ? benchProgress
-              ? `${benchProgress.policy} ${benchProgress.run}/${benchProgress.total}…`
-              : "준비 중…"
-            : `▶ 5개 정책 × ${benchRuns}회 비교`}
-        </button>
-        <button
-          disabled={benchmarking}
-          onClick={clearHistory}
-          className="w-full mt-1 px-2 py-1 rounded text-[11px] bg-slate-700 text-slate-300 disabled:opacity-40"
-        >
-          히스토리 초기화
-        </button>
+
+        {/* 특성 benchmark */}
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <label className="text-xs text-slate-300 flex-1">특성 ON/OFF 영향</label>
+            <input
+              type="number" min={1} max={10} value={traitRuns}
+              onChange={(e) => setTraitRuns(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+              className="w-12 bg-slate-800 rounded px-1 py-0.5 text-xs text-right"
+              disabled={benchmarking}
+            />
+            <span className="text-[10px] text-slate-500">회</span>
+          </div>
+          <button
+            disabled={benchmarking}
+            onClick={() => runTraitBenchmark(traitRuns)}
+            className="w-full px-2 py-1.5 rounded text-xs font-medium bg-pink-500 text-black disabled:opacity-50"
+          >
+            ▶ 8개 시나리오 × {traitRuns}회
+          </button>
+        </div>
+
+        <div className="flex gap-1 mt-2">
+          <button disabled={benchmarking} onClick={clearHistory}
+            className="flex-1 px-2 py-1 rounded text-[11px] bg-slate-700 text-slate-300 disabled:opacity-40">
+            정책 초기화
+          </button>
+          <button disabled={benchmarking} onClick={clearTraitBench}
+            className="flex-1 px-2 py-1 rounded text-[11px] bg-slate-700 text-slate-300 disabled:opacity-40">
+            특성 초기화
+          </button>
+        </div>
       </div>
 
       <Slider label={`좌석 행: ${cfg.rows}`} min={2} max={40} value={cfg.rows}
