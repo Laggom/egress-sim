@@ -69,25 +69,68 @@ export default function App() {
 }
 
 function Legend() {
-  const items = [
-    { c: "#64748b", l: "착석" },
-    { c: "#a78bfa", l: "기립 중" },
-    { c: "#38bdf8", l: "보행" },
-    { c: "#22c55e", l: "⚡빠름" },
-    { c: "#fb923c", l: "🐢느림" },
-    { c: "#84cc16", l: "🦨냄새(반경 회피)" },
-    { c: "#ec4899", l: "💬대화짝(점선)" },
-    { c: "#22c55e", l: "출구" },
-    { c: "rgba(239,68,68,0.7)", l: "정체 heat" },
+  const groups: { title: string; items: { c: string; l: string; ring?: string; dashed?: boolean; emoji?: string }[] }[] = [
+    {
+      title: "상태",
+      items: [
+        { c: "#64748b", l: "착석" },
+        { c: "#a78bfa", l: "기립 중" },
+        { c: "#38bdf8", l: "보행 (보통)" },
+      ],
+    },
+    {
+      title: "사람 특성",
+      items: [
+        { c: "#22c55e", l: "⚡ 빠른 사람" },
+        { c: "#fb923c", l: "🐢 느린 사람" },
+        { c: "#84cc16", l: "🦨 냄새나는 사람", ring: "rgba(132,204,22,0.5)" },
+        { c: "#38bdf8", l: "💬 대화 짝 (점선 연결)", dashed: true },
+        { c: "#38bdf8", l: "📦 물건 떨어뜨림 (아이콘)", emoji: "📦" },
+      ],
+    },
+    {
+      title: "환경",
+      items: [
+        { c: "#22c55e", l: "출구 (EXIT)" },
+        { c: "rgba(239,68,68,0.7)", l: "정체 heat" },
+        { c: "#facc15", l: "선택된 좌석/사람" },
+      ],
+    },
   ];
   return (
-    <div className="bg-slate-800/50 rounded p-3 flex flex-wrap gap-3 text-xs text-slate-300">
-      {items.map((i) => (
-        <span key={i.l} className="inline-flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded" style={{ background: i.c }} />
-          {i.l}
-        </span>
+    <div className="bg-slate-800/50 rounded p-3 text-xs text-slate-300 space-y-2">
+      {groups.map((g) => (
+        <div key={g.title}>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">{g.title}</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+            {g.items.map((i) => (
+              <span key={i.l} className="inline-flex items-center gap-1.5">
+                <LegendSwatch color={i.c} ring={i.ring} dashed={i.dashed} emoji={i.emoji} />
+                {i.l}
+              </span>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
+  );
+}
+
+function LegendSwatch({ color, ring, dashed, emoji }: { color: string; ring?: string; dashed?: boolean; emoji?: string }) {
+  if (emoji) {
+    return <span className="inline-flex w-4 h-4 items-center justify-center text-[12px] leading-none">{emoji}</span>;
+  }
+  if (dashed) {
+    return (
+      <span className="inline-flex w-5 h-3 items-center">
+        <span className="w-full border-t-2 border-dashed" style={{ borderColor: "#ec4899" }} />
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-block w-3 h-3 rounded-full"
+      style={{ background: color, boxShadow: ring ? `0 0 0 2px ${ring}` : undefined }}
+    />
   );
 }
