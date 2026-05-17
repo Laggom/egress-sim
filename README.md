@@ -1,73 +1,23 @@
-# React + TypeScript + Vite
+# 🚪 세미나실 퇴장 시뮬레이터
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+🔗 **Live**: https://egress-sim.vercel.app
 
-Currently, two official plugins are available:
+좌석 배치, 출구 위치, 퇴장 정책에 따라 세미나실이 비워지는 데 얼마나 걸리는지 보여주는 인터랙티브 시뮬레이터.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 모델 가정
 
-## React Compiler
+- **셀 크기**: 0.5 m × 0.5 m (좌석 폭/통로 폭 기준)
+- **보행 속도**: 사용자 평균 ± 약 25% (정규분포)
+- **기립 시간**: 평균 2.5 s, 표준편차 1.2 s (실제 좌석 이탈 timing 반영)
+- **충돌**: 1 cell = 1 person. 다음 칸이 점유되어 있으면 대기 → 정체 누적(heat)
+- **경로**: BFS로 좌석 → 가장 가까운 출구
+- **정책**: 앞→뒤 / 뒤→앞 / 줄별 / 격자(짝수→홀수) / 자유(동시)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Stack
+Vite + React 18 + TypeScript + Tailwind + Canvas 2D + zustand. 외부 API 0개.
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 개발
+```bash
+npm install
+npm run dev
 ```
