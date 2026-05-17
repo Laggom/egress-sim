@@ -231,6 +231,9 @@ export function createPeople(cfg: SimConfig, grid: Grid): Person[] {
         dropUntil: -1,
         dropCount: 0,
         chatterWith: null,
+        chatterLeader: false,
+        lastProgressT: 0,
+        chatterBroken: false,
       });
     }
   }
@@ -257,6 +260,9 @@ export function createPeople(cfg: SimConfig, grid: Grid): Person[] {
     if (people[a].chatterWith !== null || people[b].chatterWith !== null) continue;
     people[a].chatterWith = b;
     people[b].chatterWith = a;
+    // a를 leader (id가 작은 쪽). leader는 buddy를 기다리지 않음.
+    people[a].chatterLeader = true;
+    people[b].chatterLeader = false;
     // 같은 cue 시간으로 동기화 (둘 중 늦은 쪽)
     const c0 = Math.max(people[a].cueTime, people[b].cueTime);
     people[a].cueTime = c0;
@@ -302,6 +308,7 @@ export function stepSim(
           p.path = path;
           p.pathIdx = 0;
           p.state = "walking";
+          p.lastProgressT = t;
         } else {
           p.state = "exited";
           p.exitTime = t;
@@ -323,28 +330,30 @@ export function stepSim(
         p.dropCount++;
         continue;
       }
-      // chatter 동행: 짝이 아직 따라오지 않으면 대기
-      if (p.chatterWith !== null) {
+      // chatter 동행: follower만 leader를 기다림. leader는 절대 안 기다림.
+      // timeout(5s 동안 정체)면 동행 포기.
+      if (p.chatterWith !== null && !p.chatterBroken) {
         const buddy = people[p.chatterWith];
-        if (buddy && buddy.state !== "exited") {
-          if (buddy.state === "seated" || buddy.state === "standing") {
-            // 짝이 아직 좌석 — 대기 (작은 heat)
-            const cx = Math.round(p.x);
-            const cy = Math.round(p.y);
-            heat[cy * W + cx] += dt * 0.3;
-            continue;
-          }
-          // 거리 체크 (둘 다 walking)
-          const gap = Math.hypot(buddy.x - p.x, buddy.y - p.y);
-          if (gap > 2.2) {
-            // 너무 멀면 더 빠른 쪽이 잠시 멈춤 (그 쪽이 본인일 경우만)
-            if (p.speed >= buddy.speed) {
-              const cx = Math.round(p.x);
-              const cy = Math.round(p.y);
-              heat[cy * W + cx] += dt * 0.2;
-              continue;
+        if (buddy && buddy.state !== "exited" && !buddy.chatterBroken) {
+          if (!p.chatterLeader) {
+            // follower
+            if (buddy.state === "seated" || buddy.state === "standing") {
+              // leader가 아직 출발 안 함 → 대기
+              if (t - p.lastProgressT > 5) {
+                p.chatterBroken = true;
+                buddy.chatterBroken = true;
+              } else {
+                const cx = Math.round(p.x);
+                const cy = Math.round(p.y);
+                heat[cy * W + cx] += dt * 0.2;
+                continue;
+              }
+            } else if (buddy.state === "walking") {
+              // leader가 너무 멀리 가면 따라잡기 위해 leader를 잠시 멈추는 대신
+              // follower는 그냥 계속 따라감 (leader가 기다리지 않으므로 deadlock 없음)
             }
           }
+          // leader는 buddy를 신경쓰지 않음 — buddy가 알아서 따라옴
         }
       }
       const wpIdx = p.pathIdx + 1;
@@ -371,14 +380,26 @@ export function stepSim(
       const targetIdx = target.y * W + target.x;
       const occ = occupied.get(targetIdx);
       if (occ !== undefined && occ !== p.id) {
-        const cx = Math.round(p.x);
-        const cy = Math.round(p.y);
-        heat[cy * W + cx] += dt;
-        continue;
+        // chatter 짝이 막고 있으면 통과 허용 (서로 자리 양보 가능)
+        const isBuddyBlocking = p.chatterWith !== null && occ === p.chatterWith && !p.chatterBroken;
+        if (!isBuddyBlocking) {
+          const cx = Math.round(p.x);
+          const cy = Math.round(p.y);
+          heat[cy * W + cx] += dt;
+          // deadlock 진단: 일정 시간 진전 없으면 broken
+          if (t - p.lastProgressT > 5 && p.chatterWith !== null) {
+            p.chatterBroken = true;
+            const b2 = people[p.chatterWith];
+            if (b2) b2.chatterBroken = true;
+          }
+          continue;
+        }
       }
-      // smelly 회피: target cell의 4-이웃에 smelly가 있으면 대기 (본인이 smelly면 무시)
+      // smelly 회피: 인접 4-cell에 smelly가 있으면 잠깐 망설이지만 영원히 막히지는 않음.
+      // - 진전이 3초 넘게 없거나 chatter라면 무시하고 통과
+      // - 그 외에는 dt당 일정 확률로만 멈춤 (양보 효과)
       if (p.trait !== "smelly") {
-        let blockedBySmell = false;
+        let smellyAdj = false;
         const nbrs: [number, number][] = [
           [target.x + 1, target.y], [target.x - 1, target.y],
           [target.x, target.y + 1], [target.x, target.y - 1],
@@ -390,16 +411,25 @@ export function stepSim(
           if (oid !== undefined && oid !== p.id) {
             const other = people[oid];
             if (other && other.trait === "smelly" && other.state !== "exited") {
-              blockedBySmell = true;
+              smellyAdj = true;
               break;
             }
           }
         }
-        if (blockedBySmell) {
-          const cx = Math.round(p.x);
-          const cy = Math.round(p.y);
-          heat[cy * W + cx] += dt * 0.6;
-          continue;
+        if (smellyAdj) {
+          const stalledFor = t - p.lastProgressT;
+          // 3초 이상 정체되면 코 막고 통과
+          if (stalledFor < 3) {
+            // dt당 70% 확률로만 멈춤 (양보) → 평균 dt/0.3초 만에 통과
+            if (Math.random() < 0.7) {
+              const cx = Math.round(p.x);
+              const cy = Math.round(p.y);
+              heat[cy * W + cx] += dt * 0.4;
+              continue;
+            }
+          }
+          // 통과 시도 — heat은 그래도 약간 누적
+          heat[Math.round(p.y) * W + Math.round(p.x)] += dt * 0.1;
         }
       }
 
@@ -410,9 +440,11 @@ export function stepSim(
         p.y = target.y;
         p.pathIdx = wpIdx;
         occupied.set(targetIdx, p.id);
+        p.lastProgressT = t;
       } else {
         p.x += (dx / dist) * moveDist;
         p.y += (dy / dist) * moveDist;
+        p.lastProgressT = t;
       }
     }
   }
